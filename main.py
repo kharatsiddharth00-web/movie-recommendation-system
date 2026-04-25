@@ -1,60 +1,197 @@
-import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from flask import Flask, request, render_template_string
+import requests
 
-# Load dataset
-movies = pd.read_csv("movies.csv")
+app = Flask(__name__)
 
-# Clean genres
-movies['genres'] = movies['genres'].str.replace('|', ' ')
+# Replace with your real OMDb API key
+API_KEY = "412bf6da"
 
-# Convert genres to vectors
-tfidf = TfidfVectorizer()
-tfidf_matrix = tfidf.fit_transform(movies['genres'])
+html = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>AI Movie Recommendation System</title>
 
-# Compute similarity
-cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+<style>
+body{
+    margin:0;
+    font-family:Arial, sans-serif;
+    background-image:url('https://images.unsplash.com/photo-1489599849927-2ee91cede3ba');
+    background-size:cover;
+    background-position:center;
+    background-attachment:fixed;
+    min-height:100vh;
+}
 
-# Reset index
-movies = movies.reset_index()
+.overlay{
+    background:rgba(0,0,0,0.72);
+    min-height:100vh;
+    padding:30px;
+}
 
-# Lowercase title mapping (important improvement)
-movies['title_lower'] = movies['title'].str.lower()
-indices = pd.Series(movies.index, index=movies['title_lower'])
+h1{
+    text-align:center;
+    color:white;
+    font-size:58px;
+    margin-bottom:10px;
+}
 
-# Recommendation function
-def recommend(movie_name, top_n=5):
-    movie_name = movie_name.lower()
+.subtitle{
+    text-align:center;
+    color:#f1f1f1;
+    font-size:22px;
+    margin-bottom:35px;
+}
 
-    # Find matching movie (partial search)
-    matches = movies[movies['title_lower'].str.contains(movie_name)]
+form{
+    text-align:center;
+    margin-bottom:40px;
+}
 
-    if matches.empty:
-        return None, []
+input{
+    width:420px;
+    max-width:90%;
+    padding:16px;
+    font-size:18px;
+    border:none;
+    border-radius:12px;
+    outline:none;
+}
 
-    idx = matches.index[0]
+button{
+    padding:16px 26px;
+    font-size:18px;
+    border:none;
+    border-radius:12px;
+    background:#e50914;
+    color:white;
+    cursor:pointer;
+    margin-left:10px;
+    transition:0.3s;
+}
 
-    sim_scores = list(enumerate(cosine_sim[idx]))
-    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-    sim_scores = sim_scores[1:top_n+1]
+button:hover{
+    background:#b20710;
+}
 
-    movie_indices = [i[0] for i in sim_scores]
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:25px;
+    margin-top:20px;
+}
 
-    return matches.iloc[0]['title'], movies['title'].iloc[movie_indices]
+.card{
+    background:rgba(255,255,255,0.12);
+    backdrop-filter:blur(12px);
+    border-radius:18px;
+    padding:15px;
+    text-align:center;
+    color:white;
+    transition:0.3s;
+    box-shadow:0 8px 20px rgba(0,0,0,0.35);
+}
 
-# CLI loop
-while True:
-    movie = input("\nEnter movie name (or 'exit'): ")
+.card:hover{
+    transform:scale(1.05);
+}
 
-    if movie.lower() == 'exit':
-        break
+.card img{
+    width:100%;
+    height:320px;
+    object-fit:cover;
+    border-radius:12px;
+}
 
-    found_movie, results = recommend(movie)
+.card h3{
+    margin-top:12px;
+    font-size:19px;
+}
 
-    if found_movie is None:
-        print("\n❌ Movie not found! Try something else.")
-    else:
-        print(f"\n🎬 Showing results for: {found_movie}")
-        print("\nRecommended movies:")
-        for m in results:
-            print("-", m)
+.card p{
+    color:#ddd;
+    margin-top:6px;
+}
+
+.message{
+    text-align:center;
+    color:white;
+    font-size:24px;
+    margin-top:30px;
+}
+
+footer{
+    text-align:center;
+    color:#ddd;
+    margin-top:45px;
+    font-size:18px;
+}
+</style>
+
+</head>
+<body>
+
+<div class="overlay">
+
+<h1>🎬 AI Movie Recommendation System</h1>
+<p class="subtitle">
+Discover movies instantly with real-time posters and smart search.
+</p>
+
+<form method="POST">
+<input type="text" name="movie" placeholder="Search Avengers, Batman, 3 Idiots..." required>
+<button type="submit">Search</button>
+</form>
+
+<div class="grid">
+{% for m in movies %}
+<div class="card">
+<img src="{{m.poster}}">
+<h3>{{m.title}}</h3>
+<p>{{m.year}}</p>
+</div>
+{% endfor %}
+</div>
+
+<div class="message">{{message}}</div>
+
+<footer>
+Developed by Siddharth Kharat
+</footer>
+
+</div>
+
+</body>
+</html>
+"""
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    movies = []
+    message = ""
+
+    if request.method == "POST":
+        movie = request.form["movie"]
+
+        url = f"https://www.omdbapi.com/?s={movie}&apikey={API_KEY}"
+        data = requests.get(url).json()
+
+        if data.get("Response") == "True":
+            for item in data["Search"][:8]:
+                poster = item["Poster"]
+
+                if poster == "N/A":
+                    poster = "https://via.placeholder.com/300x450?text=No+Poster"
+
+                movies.append({
+                    "title": item["Title"],
+                    "year": item["Year"],
+                    "poster": poster
+                })
+        else:
+            message = data.get("Error", "No movie found")
+
+    return render_template_string(html, movies=movies, message=message)
+
+if __name__ == "__main__":
+    app.run(debug=True)
